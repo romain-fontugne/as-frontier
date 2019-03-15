@@ -121,7 +121,7 @@ class Traceroute2ASGraph(object):
         self.save_graphs()
 
         # Plot graph
-        plt.figure(figsize=(8,8))
+        plt.figure(figsize=(20,12))
         plt.axis('off')
         plt.grid(False)
         options = {
