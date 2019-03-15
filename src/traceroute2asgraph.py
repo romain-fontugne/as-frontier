@@ -3,6 +3,7 @@ import json
 import networkx as nx
 import argparse
 from matplotlib import pylab as plt
+import numpy as np
 
 sys.path.append("../ip2asn/")
 import ip2asn
@@ -10,17 +11,27 @@ class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle", 
+    def __init__(self, fnames, target_asn, good_expert=True, ip2asn_db="data/rib.20190301.pickle", 
             ip2asn_ixp="data/ixs_201901.jsonl"):
         """fnames: traceroutes filenames
-        target_asn: keep only traceroutes crossing this ASN, None to get all 
-                    traceroutes"""
+        target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
+        good_expert: True for only reliable expert label
+        ip2asn_db: pickle file for the ip2asn module
+        ip2asn_ixp: IXP info for ip2asn module"""
     
         self.fnames = fnames
-        self.target_asn = int(target_asn)
+        if target_asn:
+            self.target_asn = int(target_asn)
+        else:
+            self.target_asn = None
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
         self.graph = None
         self.gt = {}
+        self.observed_asns = set()
+        self.good_expert = True
+
+        self.fname_prefix = "graphs/test/good_expert_"
+        # self.fname_prefix = "graphs/test/bad_expert_"
 
 
     def find_as_paths(self, fi):
@@ -40,12 +51,12 @@ class Traceroute2ASGraph(object):
                     continue
 
                 node =  (trial["from"], self.i2a.ip2asn(trial["from"]))
+                self.observed_asns.add(node[1])
                 as_path["path"].append(node)
                 if as_path["path"][-1][1] == self.target_asn:
                     is_target_asn = True
 
             if is_target_asn:
-                print(as_path)
                 yield as_path
 
 
@@ -54,13 +65,34 @@ class Traceroute2ASGraph(object):
 
         self.graph.add_path([hop[0] for hop in path["path"]])
         for i, (hop_ip, hop_asn) in enumerate(path["path"][1:-1]):
-            if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
+            if self.good_expert:
+                if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
+                    self.gt[hop_ip] = hop_asn
+            else:
                 self.gt[hop_ip] = hop_asn
+
         
         # add the destination IP addr if it responded
         if path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
             self.gt[path["path"][-1][0]] = path["path"][-1][1]
 
+    def save_graphs(self):
+
+        unique_asns = list(self.observed_asns)
+        node_labels = list(self.graph.nodes())
+
+        expert = np.zeros((len(unique_asns), len(node_labels)))
+        for ip, asn in self.gt.items():
+            idx_ip = node_labels.index(ip)
+            idx_asn = unique_asns.index(asn)
+
+            expert[idx_asn, idx_ip] = 1
+
+        # Save graph to files
+        np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
+        np.savetxt(self.fname_prefix+"expert.txt", expert, fmt='%s')
+        np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
+        
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
@@ -76,11 +108,14 @@ class Traceroute2ASGraph(object):
         adj_matrix = nx.to_numpy_array(self.graph)
         node_labels = self.graph.nodes()
 
-        print(adj_matrix)
-        print(node_labels)
+        # print(adj_matrix)
+        # print(node_labels)
         print(self.gt)
-        
-        
+
+        # Save graph to files
+        self.save_graphs()
+
+        # Plot graph
         options = {
             'node_color': 'black',
             'node_size': 150,
