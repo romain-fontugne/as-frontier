@@ -28,9 +28,9 @@ class Traceroute2ASGraph(object):
         self.graph = None
         self.gt = {}
         self.observed_asns = set()
-        self.good_expert = True
+        self.good_expert = good_expert
 
-        self.fname_prefix = "graphs/test/good_expert_"
+        self.fname_prefix = "graphs/test/"
         # self.fname_prefix = "graphs/test/bad_expert_"
 
 
@@ -90,7 +90,12 @@ class Traceroute2ASGraph(object):
 
         # Save graph to files
         np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
-        np.savetxt(self.fname_prefix+"expert.txt", expert, fmt='%s')
+        if self.good_expert:
+            fname = "expert_good.txt"
+        else:
+            fname = "expert_bad.txt"
+
+        np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
         
 
@@ -110,12 +115,15 @@ class Traceroute2ASGraph(object):
 
         # print(adj_matrix)
         # print(node_labels)
-        print(self.gt)
+        # print(self.gt)
 
         # Save graph to files
         self.save_graphs()
 
         # Plot graph
+        plt.figure(figsize=(8,8))
+        plt.axis('off')
+        plt.grid(False)
         options = {
             'node_color': 'black',
             'node_size': 150,
@@ -129,7 +137,13 @@ class Traceroute2ASGraph(object):
                        nodelist=self.gt.keys(),
                        node_color='r',
                        node_size=150)
-        plt.show()
+
+        expert_fname = "bad"
+        if self.good_expert:
+            expert_fname = "good"
+
+        plt.savefig(self.fname_prefix+"graph_expert_%s.pdf" % expert_fname)
+        # plt.show()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Make AS graph from raw traceroute data')
@@ -140,5 +154,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn)
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, good_expert=True)
+    ttag.process_files()
+
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, good_expert=False)
     ttag.process_files()
