@@ -2,6 +2,7 @@ import sys
 import json
 import networkx as nx
 import argparse
+from matplotlib import pylab as plt
 
 sys.path.append("../ip2asn/")
 import ip2asn
@@ -16,7 +17,7 @@ class Traceroute2ASGraph(object):
                     traceroutes"""
     
         self.fnames = fnames
-        self.target_asn = target_asn
+        self.target_asn = int(target_asn)
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
         self.graph = None
         self.gt = {}
@@ -78,7 +79,22 @@ class Traceroute2ASGraph(object):
         print(adj_matrix)
         print(node_labels)
         print(self.gt)
-
+        
+        
+        options = {
+            'node_color': 'black',
+            'node_size': 150,
+            'line_color': 'grey',
+            'linewidths': 0,
+            'width': 0.1,
+        }
+        pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
+        nx.draw_networkx(self.graph, pos, **options)
+        nx.draw_networkx_nodes(self.graph,pos,
+                       nodelist=self.gt.keys(),
+                       node_color='r',
+                       node_size=150)
+        plt.show()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Make AS graph from raw traceroute data')
