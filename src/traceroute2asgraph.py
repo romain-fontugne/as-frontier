@@ -11,11 +11,10 @@ class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, fnames, target_asn, good_expert=True, ip2asn_db="data/rib.20190301.pickle", 
+    def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle", 
             ip2asn_ixp="data/ixs_201901.jsonl"):
         """fnames: traceroutes filenames
         target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
-        good_expert: True for only reliable expert label
         ip2asn_db: pickle file for the ip2asn module
         ip2asn_ixp: IXP info for ip2asn module"""
     
@@ -28,7 +27,6 @@ class Traceroute2ASGraph(object):
         self.graph = None
         self.gt = {}
         self.observed_asns = set()
-        self.good_expert = good_expert
 
         self.fname_prefix = "graphs/test/"
         # self.fname_prefix = "graphs/test/bad_expert_"
@@ -66,35 +64,39 @@ class Traceroute2ASGraph(object):
 
         self.graph.add_path([hop[0] for hop in path["path"]])
         for i, (hop_ip, hop_asn) in enumerate(path["path"][1:-1]):
-            if self.good_expert:
-                if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
-                    self.gt[hop_ip] = hop_asn
+            if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
+                self.gt[hop_ip] = (hop_asn, 1.0)
             else:
-                self.gt[hop_ip] = hop_asn
-
+                self.gt[hop_ip] = (hop_asn, .5)
         
         # add the destination IP addr if it responded
         if path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
-            self.gt[path["path"][-1][0]] = path["path"][-1][1]
+            self.gt[path["path"][-1][0]] = (path["path"][-1][1], 1.0)
 
-    def save_graphs(self):
+    def save_graphs(self, expert_confidence):
 
         unique_asns = list(self.observed_asns)
         node_labels = list(self.graph.nodes())
 
         expert = np.zeros((len(unique_asns), len(node_labels)))
-        for ip, asn in self.gt.items():
+        for ip, (asn, confidence)in self.gt.items():
             idx_ip = node_labels.index(ip)
             idx_asn = unique_asns.index(asn)
 
-            expert[idx_asn, idx_ip] = 1
+            if expert_confidence is None:
+                expert[idx_asn, idx_ip] = confidence
+            else:
+                if confidence >= expert_confidence:
+                    expert[idx_asn, idx_ip] = 1.0
 
         # Save graph to files
         np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
-        if self.good_expert:
-            fname = "expert_good.txt"
+        if expert_confidence == 1.0:
+            fname = "expert_strict.txt"
+        elif expert_confidence == 0.0:
+            fname = "expert_loose.txt"
         else:
-            fname = "expert_bad.txt"
+            fname = "expert_weighted.txt"
 
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
@@ -119,9 +121,6 @@ class Traceroute2ASGraph(object):
         # print(node_labels)
         # print(self.gt)
 
-        # Save graph to files
-        self.save_graphs()
-
         # Plot graph
         plt.figure(figsize=(20,12))
         plt.axis('off')
@@ -140,11 +139,7 @@ class Traceroute2ASGraph(object):
                        node_color='r',
                        node_size=150)
 
-        expert_fname = "bad"
-        if self.good_expert:
-            expert_fname = "good"
-
-        plt.savefig(self.fname_prefix+"graph_expert_%s.pdf" % expert_fname)
+        plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
         # plt.show()
 
 if __name__ == "__main__":
@@ -156,8 +151,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, good_expert=True)
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn)
     ttag.process_files()
+    # Save graph to files
+    ttag.save_graphs(expert_confidence=0.0)
+    ttag.save_graphs(expert_confidence=1.0)
+    ttag.save_graphs(expert_confidence=None)
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, good_expert=False)
-    ttag.process_files()
+
