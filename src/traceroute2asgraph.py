@@ -51,7 +51,8 @@ class Traceroute2ASGraph(object):
                     continue
 
                 node =  (trial["from"], self.i2a.ip2asn(trial["from"]))
-                self.observed_asns.add(node[1])
+                if node[1]>0:
+                    self.observed_asns.add(node[1])
                 as_path["path"].append(node)
                 if as_path["path"][-1][1] == self.target_asn:
                     is_target_asn = True
@@ -97,6 +98,7 @@ class Traceroute2ASGraph(object):
 
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
+        np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
         
 
     def process_files(self):
