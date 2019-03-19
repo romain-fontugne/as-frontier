@@ -30,14 +30,16 @@ class Traceroute2ASGraph(object):
         self.routers_asn = {}
         self.observed_asns = set()
 
-        self.fname_prefix = "graphs/test/"
+        self.fname_prefix = "graphs/20190313T1200/"
         # self.fname_prefix = "graphs/test/bad_expert_"
 
 
     def find_as_paths(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
-        for res in json.load(fi):
+        for line in fi:
+            res = json.loads(line)
+            print(res)
             as_path = {"dst": res["dst_addr"], "path": []}
             is_target_asn = self.target_asn is None
             for hop in res["result"]:
