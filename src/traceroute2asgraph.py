@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import networkx as nx
 import argparse
@@ -13,7 +14,7 @@ class Traceroute2ASGraph(object):
     """Make AS graph from a raw traceroute data."""
 
     def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle", 
-            ip2asn_ixp="data/ixs_201901.jsonl"):
+            ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/"):
         """fnames: traceroutes filenames
         target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
         ip2asn_db: pickle file for the ip2asn module
@@ -30,18 +31,26 @@ class Traceroute2ASGraph(object):
         self.routers_asn = {}
         self.observed_asns = set()
 
-        self.fname_prefix = "graphs/test/"
+        self.fname_prefix = output_directory
+        if not os.path.exists(output_directory):
+            os.makedirs(output_directory)
         # self.fname_prefix = "graphs/test/bad_expert_"
 
 
     def find_as_paths(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
-        for res in json.load(fi):
+        for line in fi:
+            res = json.loads(line)
+            if "dst_addr" not in res:
+                continue
+            # print(res)
             as_path = {"dst": res["dst_addr"], "path": []}
             is_target_asn = self.target_asn is None
             for hop in res["result"]:
                 # ignore errors, look only at the first result
+                if "error" in hop:
+                    continue
                 trials = [t for t in hop["result"] if "from" in t]
                 if not trials:
                     continue
@@ -72,7 +81,7 @@ class Traceroute2ASGraph(object):
             self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
         
         # add the destination IP addr if it responded
-        if path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
+        if len(path["path"]) and path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
             self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
             self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
 
@@ -100,7 +109,7 @@ class Traceroute2ASGraph(object):
             idx_ip = node_labels.index(ip)
             confidence = 1.0/len(asns)
             for asn in asns:
-                if asn == 0:
+                if asn <= 0:
                     continue
 
                 idx_asn = unique_asns.index(asn)
@@ -112,6 +121,7 @@ class Traceroute2ASGraph(object):
                         expert[idx_asn, idx_ip] = 1.0
 
         # Save graph to files
+        # FIXME: don't store the entire matrix, use a compact format
         np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
         if expert_confidence == 1.0:
             fname = "expert_strict.txt"
@@ -135,34 +145,36 @@ class Traceroute2ASGraph(object):
                 for path in self.find_as_paths(fi):
                     self.add_path_to_graph(path)
 
-        nx.set_node_attributes(self.graph, self.vinicity_asns, "ASN")
-        adj_matrix = nx.to_numpy_array(self.graph)
-        node_labels = self.graph.nodes()
+        # nx.set_node_attributes(self.graph, self.vinicity_asns, "ASN")
 
+        # node_labels = self.graph.nodes()
+        # adj_matrix = nx.to_numpy_array(self.graph)
         # print(adj_matrix)
         # print(node_labels)
         # print(self.vinicity_asns)
 
-        # Plot graph
-        plt.figure(figsize=(20,12))
-        plt.axis('off')
-        plt.grid(False)
-        options = {
-            'node_color': 'black',
-            'node_size': 150,
-            'line_color': 'grey',
-            'linewidths': 0,
-            'width': 0.1,
-        }
-        pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
-        # nx.draw_networkx(self.graph, pos, **options)
-        # nx.draw_networkx_nodes(self.graph,pos,
-                       # nodelist=self.vinicity_asns.keys(),
-                       # node_color='r',
-                       # node_size=150)
+        plot = False
+        if plot:
+            # Plot graph
+            plt.figure(figsize=(20,12))
+            plt.axis('off')
+            plt.grid(False)
+            options = {
+                'node_color': 'black',
+                'node_size': 150,
+                'line_color': 'grey',
+                'linewidths': 0,
+                'width': 0.1,
+            }
+            pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
+            nx.draw_networkx(self.graph, pos, **options)
+            nx.draw_networkx_nodes(self.graph,pos,
+                        nodelist=self.vinicity_asns.keys(),
+                        node_color='r',
+                        node_size=150)
 
-        # plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
-        # # plt.show()
+            plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
+            # plt.show()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Make AS graph from raw traceroute data')
@@ -170,10 +182,11 @@ if __name__ == "__main__":
                     help='keep only traceroute crossing this ASN')
     parser.add_argument('traceroutes', nargs='+',
                     help='traceroutes files (json format)')
+    parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn)
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, output_directory=args.output)
     ttag.process_files()
     # Save graph to files
     ttag.save_graphs(expert_confidence=0.0)
