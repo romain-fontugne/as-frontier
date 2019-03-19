@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import networkx as nx
 import argparse
@@ -13,7 +14,7 @@ class Traceroute2ASGraph(object):
     """Make AS graph from a raw traceroute data."""
 
     def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle", 
-            ip2asn_ixp="data/ixs_201901.jsonl"):
+            ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/"):
         """fnames: traceroutes filenames
         target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
         ip2asn_db: pickle file for the ip2asn module
@@ -30,7 +31,9 @@ class Traceroute2ASGraph(object):
         self.routers_asn = {}
         self.observed_asns = set()
 
-        self.fname_prefix = "graphs/20190313T1200/"
+        self.fname_prefix = output_directory
+        if not os.path.exsits(output_directory):
+            os.makedirs(output_directory)
         # self.fname_prefix = "graphs/test/bad_expert_"
 
 
@@ -106,7 +109,7 @@ class Traceroute2ASGraph(object):
             idx_ip = node_labels.index(ip)
             confidence = 1.0/len(asns)
             for asn in asns:
-                if asn == 0:
+                if asn <= 0:
                     continue
 
                 idx_asn = unique_asns.index(asn)
@@ -179,10 +182,11 @@ if __name__ == "__main__":
                     help='keep only traceroute crossing this ASN')
     parser.add_argument('traceroutes', nargs='+',
                     help='traceroutes files (json format)')
+    parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn)
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, output_directory=args.output)
     ttag.process_files()
     # Save graph to files
     ttag.save_graphs(expert_confidence=0.0)
