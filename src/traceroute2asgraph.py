@@ -155,14 +155,14 @@ class Traceroute2ASGraph(object):
             'width': 0.1,
         }
         pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
-        nx.draw_networkx(self.graph, pos, **options)
-        nx.draw_networkx_nodes(self.graph,pos,
-                       nodelist=self.vinicity_asns.keys(),
-                       node_color='r',
-                       node_size=150)
+        # nx.draw_networkx(self.graph, pos, **options)
+        # nx.draw_networkx_nodes(self.graph,pos,
+                       # nodelist=self.vinicity_asns.keys(),
+                       # node_color='r',
+                       # node_size=150)
 
-        plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
-        # plt.show()
+        # plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
+        # # plt.show()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Make AS graph from raw traceroute data')
