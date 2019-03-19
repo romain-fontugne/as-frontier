@@ -32,7 +32,7 @@ class Traceroute2ASGraph(object):
         self.observed_asns = set()
 
         self.fname_prefix = output_directory
-        if not os.path.exsits(output_directory):
+        if not os.path.exists(output_directory):
             os.makedirs(output_directory)
         # self.fname_prefix = "graphs/test/bad_expert_"
 
