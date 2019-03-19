@@ -64,9 +64,17 @@ class Traceroute2ASGraph(object):
 
         self.graph.add_path([hop[0] for hop in path["path"]])
         for i, (hop_ip, hop_asn) in enumerate(path["path"][1:-1]):
+            # previous and next hop are same
             if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
-                self.gt[hop_ip] = (hop_asn, 1.0)
+                self.gt[hop_ip] = [(hop_asn, 1.0)]
             else:
+                # previous hop has same ASN:
+                if hop_asn == path["path"][i][1]:
+
+                # next hop has same ASN:
+                if hop_asn == path["path"][i+2][1]:
+                   self.gt[hop_ip] = [(hop_asn, .5), (path["path"][i][1])
+
                 self.gt[hop_ip] = (hop_asn, .5)
         
         # add the destination IP addr if it responded
