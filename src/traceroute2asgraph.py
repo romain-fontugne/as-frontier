@@ -60,13 +60,14 @@ class Traceroute2ASGraph(object):
                     continue
 
                 node =  (trial["from"], self.i2a.ip2asn(trial["from"]))
-                if node[1]>0:
-                    self.observed_asns.add(node[1])
                 as_path["path"].append(node)
                 if as_path["path"][-1][1] == self.target_asn:
                     is_target_asn = True
 
             if is_target_asn:
+                for (ip, asn) in as_path["path"]:
+                    if asn>0:
+                        self.observed_asns.add(asn)
                 yield as_path
 
 
@@ -121,8 +122,9 @@ class Traceroute2ASGraph(object):
                         expert[idx_asn, idx_ip] = 1.0
 
         # Save graph to files
-        # FIXME: don't store the entire matrix, use a compact format
-        np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
+        # don't store the entire matrix, use a compact format
+        # np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
+        nx.write_adjlist(self.graph, self.fname_prefix+"ip_graph.txt")
         if expert_confidence == 1.0:
             fname = "expert_strict.txt"
         elif expert_confidence == 0.0:
