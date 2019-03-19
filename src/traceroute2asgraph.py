@@ -3,6 +3,7 @@ import json
 import networkx as nx
 import argparse
 from matplotlib import pylab as plt
+from collections import defaultdict
 import numpy as np
 
 sys.path.append("../ip2asn/")
@@ -25,7 +26,8 @@ class Traceroute2ASGraph(object):
             self.target_asn = None
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
         self.graph = None
-        self.gt = {}
+        self.vinicity_asns = defaultdict(set)
+        self.routers_asn = {}
         self.observed_asns = set()
 
         self.fname_prefix = "graphs/test/"
@@ -64,38 +66,50 @@ class Traceroute2ASGraph(object):
 
         self.graph.add_path([hop[0] for hop in path["path"]])
         for i, (hop_ip, hop_asn) in enumerate(path["path"][1:-1]):
-            # previous and next hop are same
-            if hop_asn > 0 and hop_asn == path["path"][i][1] and hop_asn == path["path"][i+2][1]:
-                self.gt[hop_ip] = [(hop_asn, 1.0)]
-            else:
-                # previous hop has same ASN:
-                if hop_asn == path["path"][i][1]:
-
-                # next hop has same ASN:
-                if hop_asn == path["path"][i+2][1]:
-                   self.gt[hop_ip] = [(hop_asn, .5), (path["path"][i][1])
-
-                self.gt[hop_ip] = (hop_asn, .5)
+            self.routers_asn[hop_ip] = [hop_asn]
+            self.vinicity_asns[hop_ip].add(hop_asn)
+            self.vinicity_asns[hop_ip].add(path["path"][i][1])
+            self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
         
         # add the destination IP addr if it responded
         if path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
-            self.gt[path["path"][-1][0]] = (path["path"][-1][1], 1.0)
+            self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
+            self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
 
     def save_graphs(self, expert_confidence):
+        """Save the graph on disk.
+        
+        expert_confidence indicate the node that should be labelled. 
+        expert_confidence=1 means that only IPs with surrounded by IPs of the 
+        same AS are labelled (strict expert).
+        expert_confidence=0 will default to the simple IP to AS mapping for all
+        IPs found.
+        expert_confidence=None gives multiple labels corresponding to all surrounding
+        IPs."""
 
         unique_asns = list(self.observed_asns)
         node_labels = list(self.graph.nodes())
 
         expert = np.zeros((len(unique_asns), len(node_labels)))
-        for ip, (asn, confidence)in self.gt.items():
-            idx_ip = node_labels.index(ip)
-            idx_asn = unique_asns.index(asn)
+        if expert_confidence == 0:
+            asmap = self.routers_asn
+        else:
+            asmap = self.vinicity_asns
 
-            if expert_confidence is None:
-                expert[idx_asn, idx_ip] = confidence
-            else:
-                if confidence >= expert_confidence:
-                    expert[idx_asn, idx_ip] = 1.0
+        for ip, asns in asmap.items(): 
+            idx_ip = node_labels.index(ip)
+            confidence = 1.0/len(asns)
+            for asn in asns:
+                if asn == 0:
+                    continue
+
+                idx_asn = unique_asns.index(asn)
+
+                if expert_confidence is None:
+                    expert[idx_asn, idx_ip] = confidence
+                else:
+                    if confidence >= expert_confidence:
+                        expert[idx_asn, idx_ip] = 1.0
 
         # Save graph to files
         np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
@@ -121,13 +135,13 @@ class Traceroute2ASGraph(object):
                 for path in self.find_as_paths(fi):
                     self.add_path_to_graph(path)
 
-        nx.set_node_attributes(self.graph, self.gt, "ASN")
+        nx.set_node_attributes(self.graph, self.vinicity_asns, "ASN")
         adj_matrix = nx.to_numpy_array(self.graph)
         node_labels = self.graph.nodes()
 
         # print(adj_matrix)
         # print(node_labels)
-        # print(self.gt)
+        # print(self.vinicity_asns)
 
         # Plot graph
         plt.figure(figsize=(20,12))
@@ -143,7 +157,7 @@ class Traceroute2ASGraph(object):
         pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
         nx.draw_networkx(self.graph, pos, **options)
         nx.draw_networkx_nodes(self.graph,pos,
-                       nodelist=self.gt.keys(),
+                       nodelist=self.vinicity_asns.keys(),
                        node_color='r',
                        node_size=150)
 
