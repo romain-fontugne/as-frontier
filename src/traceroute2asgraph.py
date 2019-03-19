@@ -122,7 +122,7 @@ class Traceroute2ASGraph(object):
 
         # Save graph to files
         # FIXME: don't store the entire matrix, use a compact format
-        # np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
+        np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
         if expert_confidence == 1.0:
             fname = "expert_strict.txt"
         elif expert_confidence == 0.0:
