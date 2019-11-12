@@ -28,7 +28,7 @@ class bdrmapit():
                     ips = ips.split(' ')
 
                     for ip in ips:
-                        if filter_ips is None or ip in filter_ips:
+                        if self.filter_ips is None or ip in self.filter_ips:
                             self.ip2node[ip] = int(node_id[1:])
 
     def read_node_as_file(self):
@@ -41,7 +41,7 @@ class bdrmapit():
                     _, node_id, asn = line[:-1].split(' ')
 
                     node = int(node_id[1:])
-                    if filter is None or node in filter_nodes: 
+                    if self.filter_ips is None or node in filter_nodes: 
                         self.node2as[node] = int(asn)
 
     def ip2asn(self, ip):
@@ -49,7 +49,7 @@ class bdrmapit():
 
         bm_asn = None
         if ip in self.ip2node:
-            bm_asn = self.node2as[self.ip2node]
+            bm_asn = self.node2as.get(self.ip2node[ip], None)
 
         return bm_asn
 
