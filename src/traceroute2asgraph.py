@@ -3,6 +3,7 @@ import os
 import json
 import networkx as nx
 import argparse
+import bdrmapit
 from matplotlib import pylab as plt
 from collections import defaultdict
 import numpy as np
@@ -31,10 +32,15 @@ class Traceroute2ASGraph(object):
         self.routers_asn = {}
         self.observed_asns = set()
 
+        if not output_directory.endswith('/'):
+            output_directory+='/'
+
         self.fname_prefix = output_directory
         if not os.path.exists(output_directory):
             os.makedirs(output_directory)
         # self.fname_prefix = "graphs/test/bad_expert_"
+
+        self.periphery_size = 2
 
 
     def find_as_paths(self, fi):
@@ -65,11 +71,36 @@ class Traceroute2ASGraph(object):
                     is_target_asn = True
 
             if is_target_asn:
+                # Trim the AS path
+                as_path["path"] = self.trim_as_path(as_path["path"])
+
+                # Keep track of seen ASNs
                 for (ip, asn) in as_path["path"]:
                     if asn>0:
                         self.observed_asns.add(asn)
-                yield as_path
 
+                yield as_path
+                
+    def trim_as_path(self, path):
+        """Keep only nodes that are periphery_size hops from the target ASN"""
+
+        as_path = [x[1] for x in path]
+        try:
+            first = as_path.index(self.target_asn)
+            last = list(reversed(as_path)).index(self.target_asn)+1
+
+            start = 0
+            if first > self.periphery_size:
+                start = first - self.periphery_size
+
+            end = len(as_path)-1
+            if last + self.periphery_size < end:
+                end = last + self.periphery_size
+
+        except:
+            print(as_path)
+
+        return path[start:end+1]
 
     def add_path_to_graph(self, path):
         """Add AS path to the graph and label obvious nodes"""
@@ -126,7 +157,7 @@ class Traceroute2ASGraph(object):
         # np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
         nx.write_adjlist(self.graph, self.fname_prefix+"ip_graph.txt")
         if expert_confidence == 1.0:
-            fname = "expert_strict.txt"
+           fname = "expert_strict.txt"
         elif expert_confidence == 0.0:
             fname = "expert_loose.txt"
         else:
@@ -136,6 +167,20 @@ class Traceroute2ASGraph(object):
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
         np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
         
+
+    def bdrmapit_results(self):
+        """Output Bdrmapit results for the computed graph"""
+
+        ips = set(self.graph.nodes())
+        print('Loading bdrmapit results...')
+        bm = bdrmapit.bdrmapit(filter_ips=ips)
+
+        print('Output results...')
+        with open('bdrmapit.txt', 'w') as fi:
+            for ip in ips:
+
+                fi.write('{}, {}, {}\n'.format( ip, bm.ip2asn(ip), asmap[ip]))
+
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
@@ -190,9 +235,11 @@ if __name__ == "__main__":
 
     ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, output_directory=args.output)
     ttag.process_files()
+
     # Save graph to files
     ttag.save_graphs(expert_confidence=0.0)
     ttag.save_graphs(expert_confidence=1.0)
     ttag.save_graphs(expert_confidence=None)
 
-
+    # Save corresponding bdrmapit results
+    ttag.bdrmapit_results()
