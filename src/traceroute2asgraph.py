@@ -166,7 +166,6 @@ class Traceroute2ASGraph(object):
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
         np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
-        
 
     def bdrmapit_results(self):
         """Output Bdrmapit results for the computed graph"""
@@ -176,11 +175,9 @@ class Traceroute2ASGraph(object):
         bm = bdrmapit.bdrmapit(filter_ips=ips)
 
         print('Output results...')
-        with open('bdrmapit.txt', 'w') as fi:
+        with open(self.fname_prefix+'bdrmapit.csv', 'w') as fi:
             for ip in ips:
-
-                fi.write('{}, {}, {}\n'.format( ip, bm.ip2asn(ip), asmap[ip]))
-
+                fi.write('{}, {}, {}\n'.format( ip, bm.ip2asn(ip), self.routers_asn[ip]))
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
