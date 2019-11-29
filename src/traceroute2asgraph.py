@@ -105,17 +105,25 @@ class Traceroute2ASGraph(object):
     def add_path_to_graph(self, path):
         """Add AS path to the graph and label obvious nodes"""
 
-        self.graph.add_path([hop[0] for hop in path["path"]])
-        for i, (hop_ip, hop_asn) in enumerate(path["path"][1:-1]):
-            self.routers_asn[hop_ip] = [hop_asn]
+        ip_path = [hop[0] for hop in path["path"]]
+        if len(ip_path) < 2:
+            return
+
+        self.graph.add_path(ip_path)
+        for i, (hop_ip, hop_asn) in enumerate(path["path"][1:]):
             self.vinicity_asns[hop_ip].add(hop_asn)
+            self.routers_asn[hop_ip] = [hop_asn]
             self.vinicity_asns[hop_ip].add(path["path"][i][1])
-            self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
+            self.routers_asn[path["path"][i][0]] = [path["path"][i][1]]
+            if i+2 < len(ip_path):
+                self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
+                self.routers_asn[path["path"][i+2][0]] = [path["path"][i+2][1]]
         
         # add the destination IP addr if it responded
         if len(path["path"]) and path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
             self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
             self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
+
 
     def save_graphs(self, expert_confidence):
         """Save the graph on disk.
@@ -177,7 +185,7 @@ class Traceroute2ASGraph(object):
         print('Output results...')
         with open(self.fname_prefix+'bdrmapit.csv', 'w') as fi:
             for ip in ips:
-                fi.write('{}, {}, {}\n'.format(ip, bm.ip2asn(ip), self.routers_asn.get(ip, None)))
+                fi.write('{}, {}, {}\n'.format(ip, bm.ip2asn(ip), self.routers_asn[ip]))
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
