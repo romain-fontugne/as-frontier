@@ -1,26 +1,30 @@
-import sys
-import os
-import json
-import networkx as nx
 import argparse
-import bdrmapit
-from matplotlib import pylab as plt
+import json
+import os
+import sys
 from collections import defaultdict
+
+import networkx as nx
 import numpy as np
+from matplotlib import pylab as plt
 
 sys.path.append("../ip2asn/")
+import bdrmapit
 import ip2asn
+
+
+
 class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle", 
-            ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/"):
+    def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle",
+                 ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/"):
         """fnames: traceroutes filenames
         target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
         ip2asn_db: pickle file for the ip2asn module
         ip2asn_ixp: IXP info for ip2asn module"""
-    
+
         self.fnames = fnames
         if target_asn:
             self.target_asn = int(target_asn)
@@ -33,7 +37,7 @@ class Traceroute2ASGraph(object):
         self.observed_asns = set()
 
         if not output_directory.endswith('/'):
-            output_directory+='/'
+            output_directory += '/'
 
         self.fname_prefix = output_directory
         if not os.path.exists(output_directory):
@@ -41,7 +45,6 @@ class Traceroute2ASGraph(object):
         # self.fname_prefix = "graphs/test/bad_expert_"
 
         self.periphery_size = 2
-
 
     def find_as_paths(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
@@ -65,7 +68,7 @@ class Traceroute2ASGraph(object):
                 if as_path["path"] and trial["from"] == as_path["path"][-1][0]:
                     continue
 
-                node =  (trial["from"], self.i2a.ip2asn(trial["from"]))
+                node = (trial["from"], self.i2a.ip2asn(trial["from"]))
                 as_path["path"].append(node)
                 if as_path["path"][-1][1] == self.target_asn:
                     is_target_asn = True
@@ -76,11 +79,11 @@ class Traceroute2ASGraph(object):
 
                 # Keep track of seen ASNs
                 for (ip, asn) in as_path["path"]:
-                    if asn>0:
+                    if asn > 0:
                         self.observed_asns.add(asn)
 
                 yield as_path
-                
+
     def trim_as_path(self, path):
         """Keep only nodes that are periphery_size hops from the target ASN"""
 
@@ -118,12 +121,11 @@ class Traceroute2ASGraph(object):
             if i+2 < len(ip_path):
                 self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
                 self.routers_asn[path["path"][i+2][0]] = [path["path"][i+2][1]]
-        
+
         # add the destination IP addr if it responded
         if len(path["path"]) and path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
             self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
             self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
-
 
     def save_graphs(self, expert_confidence):
         """Save the graph on disk.
@@ -145,7 +147,7 @@ class Traceroute2ASGraph(object):
         else:
             asmap = self.vinicity_asns
 
-        for ip, asns in asmap.items(): 
+        for ip, asns in asmap.items():
             idx_ip = node_labels.index(ip)
             confidence = 1.0/len(asns)
             for asn in asns:
@@ -185,7 +187,8 @@ class Traceroute2ASGraph(object):
         print('Output results...')
         with open(self.fname_prefix+'bdrmapit.csv', 'w') as fi:
             for ip in ips:
-                fi.write('{}, {}, {}\n'.format(ip, bm.ip2asn(ip), self.routers_asn[ip]))
+                fi.write('{}, {}, {}\n'.format(
+                    ip, bm.ip2asn(ip), self.routers_asn[ip]))
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
@@ -208,7 +211,7 @@ class Traceroute2ASGraph(object):
         plot = False
         if plot:
             # Plot graph
-            plt.figure(figsize=(20,12))
+            plt.figure(figsize=(20, 12))
             plt.axis('off')
             plt.grid(False)
             options = {
@@ -220,25 +223,28 @@ class Traceroute2ASGraph(object):
             }
             pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
             nx.draw_networkx(self.graph, pos, **options)
-            nx.draw_networkx_nodes(self.graph,pos,
-                        nodelist=self.vinicity_asns.keys(),
-                        node_color='r',
-                        node_size=150)
+            nx.draw_networkx_nodes(self.graph, pos,
+                                   nodelist=self.vinicity_asns.keys(),
+                                   node_color='r',
+                                   node_size=150)
 
             plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
             # plt.show()
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Make AS graph from raw traceroute data')
-    parser.add_argument('--target-asn', 
-                    help='keep only traceroute crossing this ASN')
+    parser = argparse.ArgumentParser(
+        description='Make AS graph from raw traceroute data')
+    parser.add_argument('--target-asn',
+                        help='keep only traceroute crossing this ASN')
     parser.add_argument('traceroutes', nargs='+',
-                    help='traceroutes files (json format)')
+                        help='traceroutes files (json format)')
     parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asn, output_directory=args.output)
+    ttag = Traceroute2ASGraph(
+        args.traceroutes, args.target_asn, output_directory=args.output)
     ttag.process_files()
 
     # Save graph to files
