@@ -35,6 +35,7 @@ class Traceroute2ASGraph(object):
         self.vinicity_asns = defaultdict(set)
         self.routers_asn = {}
         self.observed_asns = set()
+        self.ttls = defaultdict(list)
 
         if not output_directory.endswith('/'):
             output_directory += '/'
@@ -68,7 +69,7 @@ class Traceroute2ASGraph(object):
                 if as_path["path"] and trial["from"] == as_path["path"][-1][0]:
                     continue
 
-                node = (trial["from"], self.i2a.ip2asn(trial["from"]))
+                node = (trial["from"], self.i2a.ip2asn(trial["from"]), trial["ttl"])
                 as_path["path"].append(node)
                 if as_path["path"][-1][1] == self.target_asn:
                     is_target_asn = True
@@ -78,7 +79,7 @@ class Traceroute2ASGraph(object):
                 as_path["path"] = self.trim_as_path(as_path["path"])
 
                 # Keep track of seen ASNs
-                for (ip, asn) in as_path["path"]:
+                for (ip, asn, ttl) in as_path["path"]:
                     if asn > 0:
                         self.observed_asns.add(asn)
 
@@ -113,7 +114,9 @@ class Traceroute2ASGraph(object):
             return
 
         self.graph.add_path(ip_path)
-        for i, (hop_ip, hop_asn) in enumerate(path["path"][1:]):
+        #FIXME vinicity_asns should be computed before triming
+        for i, (hop_ip, hop_asn, hop_ttl) in enumerate(path["path"][1:]):
+            self.ttls[hop_ip].append(hop_ttl)
             self.vinicity_asns[hop_ip].add(hop_asn)
             self.routers_asn[hop_ip] = [hop_asn]
             self.vinicity_asns[hop_ip].add(path["path"][i][1])
@@ -123,14 +126,30 @@ class Traceroute2ASGraph(object):
                 self.routers_asn[path["path"][i+2][0]] = [path["path"][i+2][1]]
 
         # add the destination IP addr if it responded
+        #FIXME always add the destination
         if len(path["path"]) and path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
             self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
             self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
+            self.ttls[path["path"][-1][0]].append(path["path"][-1][2])
 
-    def save_graphs(self, expert_confidence):
+    def save_ip_graph(self):
+        """Save the IP graph and graph labels to disk.
+
+        The graph file format is networkx adjency list"""
+
+        nx.write_adjlist(self.graph, self.fname_prefix+"ip_graph.txt")
+
+        unique_asns = list(self.observed_asns)
+        node_labels = list(self.graph.nodes())
+
+        np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
+        np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
+
+
+    def save_matrices(self, expert_confidence):
         """Save the graph on disk.
         
-        expert_confidence indicate the node that should be labelled. 
+        expert_confidence indicates how the nodes should be labelled. 
         expert_confidence=1 means that only IPs with surrounded by IPs of the 
         same AS are labelled (strict expert).
         expert_confidence=0 will default to the simple IP to AS mapping for all
@@ -165,7 +184,6 @@ class Traceroute2ASGraph(object):
         # Save graph to files
         # don't store the entire matrix, use a compact format
         # np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
-        nx.write_adjlist(self.graph, self.fname_prefix+"ip_graph.txt")
         if expert_confidence == 1.0:
            fname = "expert_strict.txt"
         elif expert_confidence == 0.0:
@@ -174,8 +192,6 @@ class Traceroute2ASGraph(object):
             fname = "expert_weighted.txt"
 
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
-        np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
-        np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
 
     def bdrmapit_results(self):
         """Output Bdrmapit results for the computed graph"""
@@ -187,8 +203,8 @@ class Traceroute2ASGraph(object):
         print('Output results...')
         with open(self.fname_prefix+'bdrmapit.csv', 'w') as fi:
             for ip in ips:
-                fi.write('{}, {}, {}\n'.format(
-                    ip, bm.ip2asn(ip), self.routers_asn[ip]))
+                fi.write('{}, {}, {}, {}, {}\n'.format(
+                    ip, bm.ip2asn(ip), self.routers_asn[ip], self.vinicity_asns[ip], np.mean(self.ttls[ip])))
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
@@ -248,9 +264,10 @@ if __name__ == "__main__":
     ttag.process_files()
 
     # Save graph to files
-    ttag.save_graphs(expert_confidence=0.0)
-    ttag.save_graphs(expert_confidence=1.0)
-    ttag.save_graphs(expert_confidence=None)
+    # ttag.save_matrices(expert_confidence=0.0)
+    # ttag.save_matrices(expert_confidence=1.0)
+    # ttag.save_matrices(expert_confidence=None)
+    ttag.save_ip_graph()
 
     # Save corresponding bdrmapit results
     ttag.bdrmapit_results()
