@@ -193,15 +193,16 @@ class Traceroute2ASGraph(object):
 
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
 
-    def bdrmapit_results(self):
-        """Output Bdrmapit results for the computed graph"""
+    def write_labels(self):
+        """Output bdrmapit, ip2asn (router and vinicity), TTLs labels for the 
+        computed graph"""
 
         ips = set(self.graph.nodes())
         print('Loading bdrmapit results...')
         bm = bdrmapit.bdrmapit(filter_ips=ips)
 
         print('Output results...')
-        with open(self.fname_prefix+'bdrmapit.csv', 'w') as fi:
+        with open(self.fname_prefix+'labels.csv', 'w') as fi:
             for ip in ips:
                 fi.write('{}, {}, {}, {}, {}\n'.format(
                     ip, bm.ip2asn(ip), self.routers_asn[ip], self.vinicity_asns[ip], np.mean(self.ttls[ip])))
