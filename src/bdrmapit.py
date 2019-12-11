@@ -3,14 +3,14 @@ import bz2
 
 class bdrmapit():
     def __init__(self, 
-            node_file='/export/ssd1/Data/caida/201803/midar-iff.nodes.bz2', 
-            node_as_file='/export/ssd1/Data/caida/201803/midar-iff.nodes.as.bz2', 
+            node_file='data/bdrmapit/201803/midar-iff.nodes.bz2', 
+            node_as_file='data/bdrmapit/201803/midar-iff.nodes.as.bz2', 
             filter_ips=None):
         """ Initialize object with given data"""
 
         self.node_file = node_file
         self.node_as_file = node_as_file
-        self.filter_ips = filter_ips
+        self.filter_ips = set(filter_ips)
 
         self.node2as = {}
         self.ip2node = {}
