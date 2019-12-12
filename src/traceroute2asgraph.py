@@ -1,4 +1,5 @@
 import argparse
+from itertools import chain
 import json
 import os
 import sys
@@ -18,121 +19,148 @@ class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, fnames, target_asn, ip2asn_db="data/rib.20190301.pickle",
-                 ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/"):
+    def __init__(self, fnames, target_asns, ip2asn_db="data/rib.20190301.pickle",
+                 ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/",
+                 af=4):
         """fnames: traceroutes filenames
-        target_asn: keep only traceroutes crossing this ASN, None to get all traceroutes
+        target_asns: output graphs for these ASNs
         ip2asn_db: pickle file for the ip2asn module
         ip2asn_ixp: IXP info for ip2asn module"""
 
         self.fnames = fnames
-        if target_asn:
-            self.target_asn = int(target_asn)
-        else:
-            self.target_asn = None
+        self.target_asns = [int(asn) for asn in target_asns.split(',')]
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
-        self.graph = None
+        self.graph = nx.Graph()
         self.vinicity_asns = defaultdict(set)
         self.routers_asn = {}
         self.observed_asns = set()
         self.ttls = defaultdict(list)
+        self.sizes = defaultdict(list)
+        self.af = af
+        self.output_directory = output_directory
 
-        if not output_directory.endswith('/'):
-            output_directory += '/'
+        if not self.output_directory.endswith('/'):
+            self.output_directory += '/'
 
-        self.fname_prefix = output_directory
-        if not os.path.exists(output_directory):
-            os.makedirs(output_directory)
-        # self.fname_prefix = "graphs/test/bad_expert_"
+        if not os.path.exists(self.output_directory):
+            os.makedirs(self.output_directory)
 
         self.periphery_size = 2
 
-    def find_as_paths(self, fi):
+    def read_traceroute_file(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
         for line in fi:
             res = json.loads(line)
             if "dst_addr" not in res:
                 continue
-            # print(res)
+
+            # Filter v4/v6 addresses
+            if ((':' in res['dst_addr'] and self.af == 4) 
+                    or ('.' in res['dst_addr'] and self.af == 6)): 
+                continue
+
             as_path = {"dst": res["dst_addr"], "path": []}
-            is_target_asn = self.target_asn is None
+            dst_asn = self.i2a.ip2asn(res["dst_addr"])
+
+            # Add the probe if we know its address
+            if "from" in res and res["from"] != "":
+                node = {"ip":res["from"], "asn":self.i2a.ip2asn(res["from"]), "ttl":255, "size":0}
+                as_path["path"].append(node)
+
             for hop in res["result"]:
                 # ignore errors, look only at the first result
                 if "error" in hop:
                     continue
-                trials = [t for t in hop["result"] if "from" in t]
+
+                trials = [t for t in hop["result"] if "from" in t and t["from"]!=""]
                 if not trials:
                     continue
                 trial = trials[0]
 
-                if as_path["path"] and trial["from"] == as_path["path"][-1][0]:
+                if as_path["path"] and trial["from"] == as_path["path"][-1]["ip"]:
                     continue
 
-                node = (trial["from"], self.i2a.ip2asn(trial["from"]), trial["ttl"])
+                node = {"ip": trial["from"], "asn": self.i2a.ip2asn(trial["from"]), "ttl": trial["ttl"], "size": trial["size"]}
                 as_path["path"].append(node)
-                if as_path["path"][-1][1] == self.target_asn:
-                    is_target_asn = True
 
-            if is_target_asn:
-                # Trim the AS path
-                as_path["path"] = self.trim_as_path(as_path["path"])
+            # ignore path with a single router
+            if len(as_path["path"]) < 2:
+                continue
 
-                # Keep track of seen ASNs
-                for (ip, asn, ttl) in as_path["path"]:
-                    if asn > 0:
-                        self.observed_asns.add(asn)
+            # Add the destination node if it didn't respond
+            if res["dst_addr"] != as_path["path"][0]:
+                node = {"ip": res["dst_addr"], "asn": dst_asn, "ttl": as_path["path"][-1]['ttl'], "size": 0}
+                as_path["path"].append(node)
 
-                yield as_path
 
-    def trim_as_path(self, path):
-        """Keep only nodes that are periphery_size hops from the target ASN"""
+            # Force dst node to the strict expert by adding the last router to 
+            # in the same ASN
+            if as_path["path"][-2]["asn"] != dst_asn:
+                as_path["path"][-2]["asn"] = dst_asn
 
-        as_path = [x[1] for x in path]
-        try:
-            first = as_path.index(self.target_asn)
-            last = list(reversed(as_path)).index(self.target_asn)+1
+            # Keep track of seen ASNs
+            for node in as_path["path"]:
+                if node["asn"] > 0:
+                    self.observed_asns.add(node["asn"])
 
-            start = 0
-            if first > self.periphery_size:
-                start = first - self.periphery_size
+            yield as_path
 
-            end = len(as_path)-1
-            if last + self.periphery_size < end:
-                end = last + self.periphery_size
+    def extract_subgraph(self, asn):
+        """Extract the subgraph for the given asn"""
 
-        except:
-            print(as_path)
+        # Find all nodes related to the asn
+        asn_nodes = {node: data for node, data in self.graph.nodes(data=True) 
+                if data['asn']==asn}
 
-        return path[start:end+1]
+        # Find all neighboring_nodes
+        neighbor_nodes = {neighbor: self.graph.nodes[neighbor] 
+                for neighbor in self.graph.neighbors(node)
+                    for node in asn_nodes}
+
+        # Find all core nodes of the neighboring asns
+        neighbor_asns = set([data['asn'] for data in neighbor_nodes.values()]) 
+        neighbor_nodes_core = {node: data for node, data in self.graph.nodes(data=True) 
+                if data['asn'] in neighbor_asns and data['core']}
+
+        # Get the subgraph
+        subgraph_nodes = chain(asn_nodes.keys(), neighbor_nodes.keys(), neighbor_nodes_core.keys())
+        subgraph = self.graph.subgraph(subgraph_nodes)
+        
+
+    def find_core_nodes(self):
+        """Find nodes that are surronded only by nodes from the same AS"""
+
+        for node, data in self.graph.nodes(data=True):
+            neighbors_asn = set([self.graph.nodes[neighbor]['asn'] 
+                    for neighbor in self.graph.neighbors(node)])
+
+            if len(neighbors_asn) == 1 and data['asn'] in neighbors_asn:
+                data['core'] = True
+            else:
+                data['core'] = False
+
 
     def add_path_to_graph(self, path):
         """Add AS path to the graph and label obvious nodes"""
 
-        ip_path = [hop[0] for hop in path["path"]]
+        ip_path = [hop["ip"] for hop in path["path"]]
         if len(ip_path) < 2:
             return
 
-        self.graph.add_path(ip_path)
-        #FIXME vinicity_asns should be computed before triming
-        for i, (hop_ip, hop_asn, hop_ttl) in enumerate(path["path"][1:]):
-            self.ttls[hop_ip].append(hop_ttl)
-            self.vinicity_asns[hop_ip].add(hop_asn)
-            self.routers_asn[hop_ip] = [hop_asn]
-            self.vinicity_asns[hop_ip].add(path["path"][i][1])
-            self.routers_asn[path["path"][i][0]] = [path["path"][i][1]]
-            if i+2 < len(ip_path):
-                self.vinicity_asns[hop_ip].add(path["path"][i+2][1])
-                self.routers_asn[path["path"][i+2][0]] = [path["path"][i+2][1]]
+        nx.add_path(self.graph, ip_path)
 
-        # add the destination IP addr if it responded
-        #FIXME always add the destination
-        if len(path["path"]) and path["path"][-1][0] == path["dst"] and path["path"][-1][1] > 0:
-            self.vinicity_asns[path["path"][-1][0]].add(path["path"][-1][1])
-            self.routers_asn[path["path"][-1][0]] = [path["path"][-1][1]]
-            self.ttls[path["path"][-1][0]].append(path["path"][-1][2])
+        # Add nodes metadata
+        for hop in path["path"]:
+            if 'asn' not in self.graph.nodes[hop["ip"]]:
+                self.graph.nodes[hop["ip"]]['ttl'] = []
+                self.graph.nodes[hop["ip"]]['size'] = []
+                self.graph.nodes[hop["ip"]]['asn'] = hop["asn"]
 
-    def save_ip_graph(self):
+            self.graph.nodes[hop["ip"]]['ttl'].append(hop["ttl"])
+            self.graph.nodes[hop["ip"]]['size'].append(hop["size"])
+
+    def save_graph(self):
         """Save the IP graph and graph labels to disk.
 
         The graph file format is networkx adjency list"""
@@ -146,6 +174,7 @@ class Traceroute2ASGraph(object):
         np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
 
 
+#TODO remove this method?
     def save_matrices(self, expert_confidence):
         """Save the graph on disk.
         
@@ -193,67 +222,81 @@ class Traceroute2ASGraph(object):
 
         np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
 
-    def write_labels(self):
+    def save_graph_labels(self, graph):
         """Output bdrmapit, ip2asn (router and vinicity), TTLs labels for the 
-        computed graph"""
+        given graph"""
 
-        ips = set(self.graph.nodes())
+        ips = dict(graph.nodes(data=True))
         print('Loading bdrmapit results...')
-        bm = bdrmapit.bdrmapit(filter_ips=ips)
+        bm = bdrmapit.bdrmapit(filter_ips=ips.keys())
 
         print('Output results...')
         with open(self.fname_prefix+'labels.csv', 'w') as fi:
-            for ip in ips:
-                fi.write('{}, {}, {}, {}, {}\n'.format(
-                    ip, bm.ip2asn(ip), self.routers_asn[ip], self.vinicity_asns[ip], np.mean(self.ttls[ip])))
+            for ip, data in ips.items():
+                neighbors_asn = set([graph.nodes[neighbor]['asn'] 
+                        for neighbor in graph.neighbors(node)])
+                fi.write('{}, {}, {}, {}, {}, {}\n'.format(
+                    ip, bm.ip2asn(ip), data['asn'], list(neighbors_asn), 
+                    np.mean(data['ttl']), np.mean(data['size'])))
+
+    def plot_graph(self, graph):
+        """Plot the given graph"""
+
+        plt.figure(figsize=(20, 12))
+        plt.axis('off')
+        plt.grid(False)
+        options = {
+            'node_color': 'black',
+            'node_size': 150,
+            'line_color': 'grey',
+            'linewidths': 0,
+            'width': 0.1,
+        }
+        pos = nx.drawing.layout.kamada_kawai_layout(graph)
+        nx.draw_networkx(graph, pos, **options)
+        nx.draw_networkx_nodes(graph, pos,
+                                nodelist=self.vinicity_asns.keys(),
+                                node_color='r',
+                                node_size=150)
+
+        plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
+
 
     def process_files(self):
         """Read all files, make the graph, and save it on disk.
         """
 
-        self.graph = nx.Graph()
+        # Constuct the global graph from all files
+        print('Reading traceroute data...')
         for fname in self.fnames:
             with open(fname, "r") as fi:
-                for path in self.find_as_paths(fi):
+                for path in self.read_traceroute_file(fi):
                     self.add_path_to_graph(path)
 
-        # nx.set_node_attributes(self.graph, self.vinicity_asns, "ASN")
+        print('Finding core nodes...')
+        self.find_core_nodes()
 
-        # node_labels = self.graph.nodes()
-        # adj_matrix = nx.to_numpy_array(self.graph)
-        # print(adj_matrix)
-        # print(node_labels)
-        # print(self.vinicity_asns)
+        for asn in self.target_asns:
+            self.fname_prefix = self.output_directory+"AS{}/".format(asn)
+            if not os.path.exists(self.fname_prefix):
+                os.makedirs(self.fname_prefix)
 
-        plot = False
-        if plot:
-            # Plot graph
-            plt.figure(figsize=(20, 12))
-            plt.axis('off')
-            plt.grid(False)
-            options = {
-                'node_color': 'black',
-                'node_size': 150,
-                'line_color': 'grey',
-                'linewidths': 0,
-                'width': 0.1,
-            }
-            pos = nx.drawing.layout.kamada_kawai_layout(self.graph)
-            nx.draw_networkx(self.graph, pos, **options)
-            nx.draw_networkx_nodes(self.graph, pos,
-                                   nodelist=self.vinicity_asns.keys(),
-                                   node_color='r',
-                                   node_size=150)
+            print('Finding subgraph (AS{})...'.format(asn))
+            subgraph = self.extract_subgraph()
+            print('Saving subgraph (AS{})...'.format(asn))
+            self.save_graph(subgraph)
+            print('Saving labels (AS{})...'.format(asn))
+            self.save_graph_labels(subgraph)
 
-            plt.savefig(self.fname_prefix+"graph_with_ips.pdf")
-            # plt.show()
-
+            plot = False
+            if plot:
+                self.plot_graph(subgraph)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Make AS graph from raw traceroute data')
-    parser.add_argument('--target-asn',
-                        help='keep only traceroute crossing this ASN')
+    parser.add_argument('--target-asns',
+                help='Comma separated list of ASNs, output graphs only for these asns')
     parser.add_argument('traceroutes', nargs='+',
                         help='traceroutes files (json format)')
     parser.add_argument('output', help='output directory')
@@ -261,14 +304,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     ttag = Traceroute2ASGraph(
-        args.traceroutes, args.target_asn, output_directory=args.output)
+        args.traceroutes, args.target_asns, output_directory=args.output)
     ttag.process_files()
 
-    # Save graph to files
-    # ttag.save_matrices(expert_confidence=0.0)
-    # ttag.save_matrices(expert_confidence=1.0)
-    # ttag.save_matrices(expert_confidence=None)
-    ttag.save_ip_graph()
 
-    # Save corresponding bdrmapit results
-    ttag.bdrmapit_results()
+# Sanity check:
+# All probes should be flagged as core node

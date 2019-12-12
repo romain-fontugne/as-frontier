@@ -25,11 +25,20 @@ class bdrmapit():
             for line in fi:
                 if line.startswith('node'):
                     node_id, _, ips = line[5:-1].partition(':')
-                    ips = ips.split(' ')
+                    ips = set(ips.split(' '))
 
-                    for ip in ips:
-                        if self.filter_ips is None or ip in self.filter_ips:
+                    if self.filter_ips is None: 
+                        for ip in ips:
                             self.ip2node[ip] = int(node_id[1:])
+                    else:
+                        inter = self.filter_ips.intersection(ips)
+                        for ip in inter:
+                            self.ip2node[ip] = int(node_id[1:])
+
+                        # Stop if we got all IPs 
+                        self.filter_ips.difference_update(inter)
+                        if not self.filter_ips:
+                            break
 
     def read_node_as_file(self):
         """Read node AS file and populate the corresponding dictionary"""
