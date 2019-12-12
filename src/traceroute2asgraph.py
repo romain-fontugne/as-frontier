@@ -7,7 +7,6 @@ from collections import defaultdict
 
 import networkx as nx
 import numpy as np
-from matplotlib import pylab as plt
 
 sys.path.append("../ip2asn/")
 import bdrmapit
@@ -173,55 +172,6 @@ class Traceroute2ASGraph(object):
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
         np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
 
-
-#TODO remove this method?
-    def save_matrices(self, expert_confidence):
-        """Save the graph on disk.
-        
-        expert_confidence indicates how the nodes should be labelled. 
-        expert_confidence=1 means that only IPs with surrounded by IPs of the 
-        same AS are labelled (strict expert).
-        expert_confidence=0 will default to the simple IP to AS mapping for all
-        IPs found.
-        expert_confidence=None gives multiple labels corresponding to all surrounding
-        IPs."""
-
-        unique_asns = list(self.observed_asns)
-        node_labels = list(self.graph.nodes())
-
-        expert = np.zeros((len(unique_asns), len(node_labels)))
-        if expert_confidence == 0:
-            asmap = self.routers_asn
-        else:
-            asmap = self.vinicity_asns
-
-        for ip, asns in asmap.items():
-            idx_ip = node_labels.index(ip)
-            confidence = 1.0/len(asns)
-            for asn in asns:
-                if asn <= 0:
-                    continue
-
-                idx_asn = unique_asns.index(asn)
-
-                if expert_confidence is None:
-                    expert[idx_asn, idx_ip] = confidence
-                else:
-                    if confidence >= expert_confidence:
-                        expert[idx_asn, idx_ip] = 1.0
-
-        # Save graph to files
-        # don't store the entire matrix, use a compact format
-        # np.savetxt(self.fname_prefix+"ip_graph.txt", nx.to_numpy_array(self.graph), fmt='%s')
-        if expert_confidence == 1.0:
-           fname = "expert_strict.txt"
-        elif expert_confidence == 0.0:
-            fname = "expert_loose.txt"
-        else:
-            fname = "expert_weighted.txt"
-
-        np.savetxt(self.fname_prefix+fname, expert, fmt='%s')
-
     def save_graph_labels(self, graph):
         """Output bdrmapit, ip2asn (router and vinicity), TTLs labels for the 
         given graph"""
@@ -241,6 +191,8 @@ class Traceroute2ASGraph(object):
 
     def plot_graph(self, graph):
         """Plot the given graph"""
+
+        from matplotlib import pylab as plt
 
         plt.figure(figsize=(20, 12))
         plt.axis('off')
