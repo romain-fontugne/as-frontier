@@ -2,6 +2,7 @@ import argparse
 from itertools import chain
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -11,6 +12,15 @@ import numpy as np
 sys.path.append("../ip2asn/")
 import bdrmapit
 import ip2asn
+
+# https://en.wikipedia.org/wiki/Private_network
+priv_lo = re.compile("^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+priv_24 = re.compile("^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+priv_20 = re.compile("^192\.168\.\d{1,3}.\d{1,3}$")
+priv_16 = re.compile("^172.(1[6-9]|2[0-9]|3[0-1]).[0-9]{1,3}.[0-9]{1,3}$")
+
+def isPrivateIP(ip):
+    return priv_lo.match(ip) or priv_24.match(ip) or priv_20.match(ip) or priv_16.match(ip)
 
 
 
@@ -32,7 +42,6 @@ class Traceroute2ASGraph(object):
         self.graph = nx.Graph()
         self.vinicity_asns = defaultdict(set)
         self.routers_asn = {}
-        self.observed_asns = set()
         self.ttls = defaultdict(list)
         self.sizes = defaultdict(list)
         self.af = af
@@ -51,6 +60,7 @@ class Traceroute2ASGraph(object):
 
         for line in fi:
             res = json.loads(line)
+
             if "dst_addr" not in res:
                 continue
 
@@ -63,7 +73,7 @@ class Traceroute2ASGraph(object):
             dst_asn = self.i2a.ip2asn(res["dst_addr"])
 
             # Add the probe if we know its address
-            if "from" in res and res["from"] != "":
+            if "from" in res and res["from"] != "" and not isPrivateIP(res['from']):
                 node = {"ip":res["from"], "asn":self.i2a.ip2asn(res["from"]), "ttl":255, "size":0}
                 as_path["path"].append(node)
 
@@ -72,7 +82,7 @@ class Traceroute2ASGraph(object):
                 if "error" in hop:
                     continue
 
-                trials = [t for t in hop["result"] if "from" in t and t["from"]!=""]
+                trials = [t for t in hop["result"] if "from" in t and not isPrivateIP(t["from"])]
                 if not trials:
                     continue
                 trial = trials[0]
@@ -98,11 +108,6 @@ class Traceroute2ASGraph(object):
             if as_path["path"][-2]["asn"] != dst_asn:
                 as_path["path"][-2]["asn"] = dst_asn
 
-            # Keep track of seen ASNs
-            for node in as_path["path"]:
-                if node["asn"] > 0:
-                    self.observed_asns.add(node["asn"])
-
             yield as_path
 
     def extract_subgraph(self, asn):
@@ -114,8 +119,8 @@ class Traceroute2ASGraph(object):
 
         # Find all neighboring_nodes
         neighbor_nodes = {neighbor: self.graph.nodes[neighbor] 
-                for neighbor in self.graph.neighbors(node)
-                    for node in asn_nodes}
+                for node in asn_nodes
+                    for neighbor in self.graph.neighbors(node)}
 
         # Find all core nodes of the neighboring asns
         neighbor_asns = set([data['asn'] for data in neighbor_nodes.values()]) 
@@ -126,6 +131,7 @@ class Traceroute2ASGraph(object):
         subgraph_nodes = chain(asn_nodes.keys(), neighbor_nodes.keys(), neighbor_nodes_core.keys())
         subgraph = self.graph.subgraph(subgraph_nodes)
         
+        return subgraph
 
     def find_core_nodes(self):
         """Find nodes that are surronded only by nodes from the same AS"""
@@ -134,6 +140,9 @@ class Traceroute2ASGraph(object):
             neighbors_asn = set([self.graph.nodes[neighbor]['asn'] 
                     for neighbor in self.graph.neighbors(node)])
 
+            if data['size'] == 0:
+                # Atlas probes and destination IPs are core nodes
+                data['core'] = True
             if len(neighbors_asn) == 1 and data['asn'] in neighbors_asn:
                 data['core'] = True
             else:
@@ -159,18 +168,16 @@ class Traceroute2ASGraph(object):
             self.graph.nodes[hop["ip"]]['ttl'].append(hop["ttl"])
             self.graph.nodes[hop["ip"]]['size'].append(hop["size"])
 
-    def save_graph(self):
+    def save_graph(self, graph):
         """Save the IP graph and graph labels to disk.
 
         The graph file format is networkx adjency list"""
 
-        nx.write_adjlist(self.graph, self.fname_prefix+"ip_graph.txt")
+        nx.write_adjlist(graph, self.fname_prefix+"ip_graph.txt")
 
-        unique_asns = list(self.observed_asns)
-        node_labels = list(self.graph.nodes())
+        node_labels = list(graph.nodes())
 
         np.savetxt(self.fname_prefix+"node_labels.txt", node_labels, fmt='%s')
-        np.savetxt(self.fname_prefix+"asns_labels.txt", unique_asns, fmt='%s')
 
     def save_graph_labels(self, graph):
         """Output bdrmapit, ip2asn (router and vinicity), TTLs labels for the 
@@ -184,7 +191,7 @@ class Traceroute2ASGraph(object):
         with open(self.fname_prefix+'labels.csv', 'w') as fi:
             for ip, data in ips.items():
                 neighbors_asn = set([graph.nodes[neighbor]['asn'] 
-                        for neighbor in graph.neighbors(node)])
+                        for neighbor in graph.neighbors(ip)])
                 fi.write('{}, {}, {}, {}, {}, {}\n'.format(
                     ip, bm.ip2asn(ip), data['asn'], list(neighbors_asn), 
                     np.mean(data['ttl']), np.mean(data['size'])))
@@ -234,7 +241,7 @@ class Traceroute2ASGraph(object):
                 os.makedirs(self.fname_prefix)
 
             print('Finding subgraph (AS{})...'.format(asn))
-            subgraph = self.extract_subgraph()
+            subgraph = self.extract_subgraph(asn)
             print('Saving subgraph (AS{})...'.format(asn))
             self.save_graph(subgraph)
             print('Saving labels (AS{})...'.format(asn))
