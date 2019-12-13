@@ -174,6 +174,7 @@ class Traceroute2ASGraph(object):
         The graph file format is networkx adjency list"""
 
         nx.write_adjlist(graph, self.fname_prefix+"ip_graph.txt")
+        nx.write_gexf(graph, self.fname_prefix+"graph.gexf")
 
         node_labels = list(graph.nodes())
 
