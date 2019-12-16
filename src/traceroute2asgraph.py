@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import networkx as nx
 import numpy as np
+import lz4.frame
 
 sys.path.append("../ip2asn/")
 import bdrmapit
@@ -28,13 +29,15 @@ class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, target_asns, ip2asn_db="data/rib.20180401.pickle",
+    def __init__(self, fnames, target_asns, ip2asn_db="data/rib.20180401.pickle",
                  ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/",
                  af=4):
-        """target_asns: output graphs for these ASNs
+        """fnames: list of traceroute files
+        target_asns: output graphs for these ASNs
         ip2asn_db: pickle file for the ip2asn module
         ip2asn_ixp: IXP info for ip2asn module"""
 
+        self.fnames = fnames
         self.target_asns = [int(asn) for asn in target_asns.split(',')]
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
         self.graph = nx.Graph()
@@ -59,7 +62,7 @@ class Traceroute2ASGraph(object):
     def read_traceroute_file(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
-        results = json.loads(fi.readline())
+        results = json.loads(fi)
         for res in results:
 
             if "dst_addr" not in res:
@@ -236,8 +239,16 @@ class Traceroute2ASGraph(object):
 
         # Constuct the global graph from all files
         print('Reading traceroute data...')
-        for path in self.read_traceroute_file(sys.stdin):
-            self.add_path_to_graph(path)
+        for fname in self.fnames:
+            print(fname)
+            fi = None
+            if fname.endswith('lz4'):
+                fi = lz4.frame.open(fname) 
+            elif fname.endswith('bz2'):
+                fi = bz2.open(fname) # jsonl TODO implement
+            for path in self.read_traceroute_file(fi.readline()):
+                self.add_path_to_graph(path)
+            print('{} nodes'.format(len(self.graph)))
 
         print('Finding core nodes...')
         self.find_core_nodes()
@@ -260,15 +271,16 @@ class Traceroute2ASGraph(object):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Make AS graph from raw traceroute data. This tools reads \
-traceroute data from the standard input (each file contains a list of dict).')
+        description='Make AS graph from raw traceroute data.')
     parser.add_argument('--target-asns',
                 help='Comma separated list of ASNs, output graphs only for these asns')
+    parser.add_argument('traceroutes', nargs='+',
+                help='traceroutes files (json format)')
     parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph( args.target_asns, output_directory=args.output)
+    ttag = Traceroute2ASGraph(args.traceroutes, args.target_asns, output_directory=args.output)
     ttag.process_files()
 
 
