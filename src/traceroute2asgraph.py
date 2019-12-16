@@ -55,6 +55,9 @@ class Traceroute2ASGraph(object):
 
         self.periphery_size = 2
 
+        print('Loading bdrmapit results...')
+        bm = bdrmapit.bdrmapit(filter_ips=ips.keys())
+
     def read_traceroute_file(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
@@ -123,7 +126,7 @@ class Traceroute2ASGraph(object):
                     for neighbor in self.graph.neighbors(node)}
 
         # Find all core nodes of the neighboring asns
-        neighbor_asns = set([data['asn'] for data in neighbor_nodes.values()]) 
+        neighbor_asns = set([data['asn'] for data in neighbor_nodes.values() if data['asn']!=0]) 
         neighbor_nodes_core = {node: data for node, data in self.graph.nodes(data=True) 
                 if data['asn'] in neighbor_asns and data['core']}
 
@@ -131,6 +134,15 @@ class Traceroute2ASGraph(object):
         subgraph_nodes = chain(asn_nodes.keys(), neighbor_nodes.keys(), neighbor_nodes_core.keys())
         subgraph = self.graph.subgraph(subgraph_nodes)
         
+        # # Remove connected components with no node from the selected asn
+        # cc = nx.connected_components(subgraph)
+        # final_nodes = []
+        # for component in cc:
+            # if any(elem in asn_nodes for elem in component):
+                # final_nodes.extend(component)
+
+        # subgraph = subgraph.subgraph(final_nodes)
+
         return subgraph
 
     def find_core_nodes(self):
@@ -174,7 +186,7 @@ class Traceroute2ASGraph(object):
         The graph file format is networkx adjency list"""
 
         nx.write_adjlist(graph, self.fname_prefix+"ip_graph.txt")
-        nx.write_gexf(graph, self.fname_prefix+"graph.gexf")
+        # nx.write_gexf(graph, self.fname_prefix+"graph.gexf")
 
         node_labels = list(graph.nodes())
 
@@ -185,8 +197,6 @@ class Traceroute2ASGraph(object):
         given graph"""
 
         ips = dict(graph.nodes(data=True))
-        print('Loading bdrmapit results...')
-        bm = bdrmapit.bdrmapit(filter_ips=ips.keys())
 
         print('Output results...')
         with open(self.fname_prefix+'labels.csv', 'w') as fi:
@@ -228,10 +238,8 @@ class Traceroute2ASGraph(object):
 
         # Constuct the global graph from all files
         print('Reading traceroute data...')
-        for fname in self.fnames:
-            with open(fname, "r") as fi:
-                for path in self.read_traceroute_file(fi):
-                    self.add_path_to_graph(path)
+        for path in self.read_traceroute_file(sys.stdin):
+            self.add_path_to_graph(path)
 
         print('Finding core nodes...')
         self.find_core_nodes()
@@ -254,11 +262,10 @@ class Traceroute2ASGraph(object):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Make AS graph from raw traceroute data')
+        description='Make AS graph from raw traceroute data. This tools reads \
+traceroute data from the standard input (jsonl format).')
     parser.add_argument('--target-asns',
                 help='Comma separated list of ASNs, output graphs only for these asns')
-    parser.add_argument('traceroutes', nargs='+',
-                        help='traceroutes files (json format)')
     parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()

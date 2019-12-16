@@ -5,18 +5,22 @@ class bdrmapit():
     def __init__(self, 
             node_file='data/bdrmapit/201803/midar-iff.nodes.bz2', 
             node_as_file='data/bdrmapit/201803/midar-iff.nodes.as.bz2', 
-            filter_ips=None):
+            filter_ips=None, load=True):
         """ Initialize object with given data"""
 
         self.node_file = node_file
         self.node_as_file = node_as_file
-        self.filter_ips = set(filter_ips)
+        if filter_ips is None:
+            self.filter_ips = None
+        else:
+            self.filter_ips = set(filter_ips)
 
         self.node2as = {}
         self.ip2node = {}
 
-        self.read_node_file()
-        self.read_node_as_file()
+        if load:
+            self.read_node_file()
+            self.read_node_as_file()
 
     def read_node_file(self):
         """Read node file and populate the corresponding dictionary"""
@@ -25,7 +29,7 @@ class bdrmapit():
             for line in fi:
                 if line.startswith('node'):
                     node_id, _, ips = line[5:-1].partition(':')
-                    ips = set(ips.split(' '))
+                    ips = ips.split(' ')
 
                     if self.filter_ips is None: 
                         for ip in ips:
