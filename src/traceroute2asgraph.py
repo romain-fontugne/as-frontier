@@ -28,15 +28,13 @@ class Traceroute2ASGraph(object):
 
     """Make AS graph from a raw traceroute data."""
 
-    def __init__(self, fnames, target_asns, ip2asn_db="data/rib.20190301.pickle",
+    def __init__(self, target_asns, ip2asn_db="data/rib.20180401.pickle",
                  ip2asn_ixp="data/ixs_201901.jsonl", output_directory="graphs/test/",
                  af=4):
-        """fnames: traceroutes filenames
-        target_asns: output graphs for these ASNs
+        """target_asns: output graphs for these ASNs
         ip2asn_db: pickle file for the ip2asn module
         ip2asn_ixp: IXP info for ip2asn module"""
 
-        self.fnames = fnames
         self.target_asns = [int(asn) for asn in target_asns.split(',')]
         self.i2a = ip2asn.ip2asn(ip2asn_db, ip2asn_ixp)
         self.graph = nx.Graph()
@@ -56,13 +54,13 @@ class Traceroute2ASGraph(object):
         self.periphery_size = 2
 
         print('Loading bdrmapit results...')
-        bm = bdrmapit.bdrmapit(filter_ips=ips.keys())
+        self.bdrmapit = bdrmapit.bdrmapit()
 
     def read_traceroute_file(self, fi):
         """Read traceroute file and return AS paths for matching traceroutes"""
 
-        for line in fi:
-            res = json.loads(line)
+        results = json.loads(fi.readline())
+        for res in results:
 
             if "dst_addr" not in res:
                 continue
@@ -204,7 +202,7 @@ class Traceroute2ASGraph(object):
                 neighbors_asn = set([graph.nodes[neighbor]['asn'] 
                         for neighbor in graph.neighbors(ip)])
                 fi.write('{}, {}, {}, {}, {}, {}\n'.format(
-                    ip, bm.ip2asn(ip), data['asn'], list(neighbors_asn), 
+                    ip, self.bdrmapit.ip2asn(ip), data['asn'], list(neighbors_asn), 
                     np.mean(data['ttl']), np.mean(data['size'])))
 
     def plot_graph(self, graph):
@@ -263,15 +261,14 @@ class Traceroute2ASGraph(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Make AS graph from raw traceroute data. This tools reads \
-traceroute data from the standard input (jsonl format).')
+traceroute data from the standard input (each file contains a list of dict).')
     parser.add_argument('--target-asns',
                 help='Comma separated list of ASNs, output graphs only for these asns')
     parser.add_argument('output', help='output directory')
 
     args = parser.parse_args()
 
-    ttag = Traceroute2ASGraph(
-        args.traceroutes, args.target_asns, output_directory=args.output)
+    ttag = Traceroute2ASGraph( args.target_asns, output_directory=args.output)
     ttag.process_files()
 
 
